@@ -32,7 +32,7 @@ class YoloLoss(nn.modules.loss._Loss):
         # Get x,y,w,h,conf,cls
         output = output.view(batch_size, self.num_anchors, -1, height * width)
         coord = torch.zeros_like(output[:, :, :4, :])
-        coord[:, :, :2, :] = output[:, :, :2, :].sigmoid()  
+        coord[:, :, :2, :] = output[:, :, :2, :].sigmoid()
         coord[:, :, 2:4, :] = output[:, :, 2:4, :]
         conf = output[:, :, 4, :].sigmoid()
         cls = output[:, :, 5:, :].contiguous().view(batch_size * self.num_anchors, self.num_classes,

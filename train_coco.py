@@ -15,13 +15,14 @@ import shutil
 
 def get_args():
     parser = argparse.ArgumentParser("You Only Look Once: Unified, Real-Time Object Detection")
-    parser.add_argument("--image_size", type=int, default=448, help="The common width and height for all images")
-    parser.add_argument("--batch_size", type=int, default=10, help="The number of images per batch")
+
+    parser.add_argument("--image_size", type=int, default=416, help="The common width and height for all images")
+    parser.add_argument("--batch_size", type=int, default=40, help="The number of images per batch")
     parser.add_argument("--momentum", type=float, default=0.9)
     parser.add_argument("--decay", type=float, default=0.0005)
     parser.add_argument("--dropout", type=float, default=0.5)
     parser.add_argument("--num_epoches", type=int, default=160)
-    parser.add_argument("--test_interval", type=int, default=5, help="Number of epoches between testing phases")
+    parser.add_argument("--test_interval", type=int, default=2, help="Number of epoches between testing phases")
     parser.add_argument("--object_scale", type=float, default=1.0)
     parser.add_argument("--noobject_scale", type=float, default=0.5)
     parser.add_argument("--class_scale", type=float, default=1.0)
@@ -34,10 +35,11 @@ def get_args():
     parser.add_argument("--train_set", type=str, default="train")
     parser.add_argument("--test_set", type=str, default="val")
     parser.add_argument("--year", type=str, default="2014", help="The year of dataset (2014 or 2017)")
-    parser.add_argument("--data_path", type=str, default="data/COCO", help="the root folder of dataset")
+    parser.add_argument("--data_path", type=str, default="//media//cuda//HDD//Internship//Kruk//COCO//",
+                        help="the root folder of dataset")
     parser.add_argument("--pre_trained_model_type", type=str, choices=["model", "params"], default="model")
-    parser.add_argument("--pre_trained_model_path", type=str, default="trained_models/whole_model_trained_yolo_coco")
-    parser.add_argument("--log_path", type=str, default="tensorboard/yolo_coco")
+    parser.add_argument("--pre_trained_model_path", type=str, default="trained_models/only_params_trained_yolo_coco")
+    parser.add_argument("--log_path", type=str, default="tensorboard/yolo_coco_LESS_data")
     parser.add_argument("--saved_path", type=str, default="trained_models")
 
     args = parser.parse_args()
@@ -67,22 +69,12 @@ def train(opt):
     test_set = COCODataset(opt.data_path, opt.year, opt.test_set, opt.image_size, is_training=False)
     test_generator = DataLoader(test_set, **test_params)
 
-    if torch.cuda.is_available():
-        if opt.pre_trained_model_type == "model":
-            model = torch.load(opt.pre_trained_model_path)
-        else:
-            model = Yolo(training_set.num_classes)
-            model.load_state_dict(torch.load(opt.pre_trained_model_path))
-    else:
-        if opt.pre_trained_model_type == "model":
-            model = torch.load(opt.pre_trained_model_path, map_location=lambda storage, loc: storage)
-        else:
-            model = Yolo(training_set.num_classes)
-            model.load_state_dict(torch.load(opt.pre_trained_model_path, map_location=lambda storage, loc: storage))
-    # The following line will re-initialize weight for the last layer, which is useful
-    # when you want to retrain the model based on my trained weights. if you uncomment it,
-    # you will see the loss is already very small at the beginning.
-    nn.init.normal_(list(model.modules())[-1].weight, 0, 0.01)
+    model = Yolo(training_set.num_classes)
+
+    continue_training = False
+    if torch.cuda.is_available() and continue_training:
+        model.load_state_dict(torch.load(opt.pre_trained_model_path))
+
     log_path = os.path.join(opt.log_path, "{}".format(opt.year))
     if os.path.isdir(log_path):
         shutil.rmtree(log_path)
@@ -128,6 +120,29 @@ def train(opt):
             writer.add_scalar('Train/Coordination_loss', loss_coord, epoch * num_iter_per_epoch + iter)
             writer.add_scalar('Train/Confidence_loss', loss_conf, epoch * num_iter_per_epoch + iter)
             writer.add_scalar('Train/Class_loss', loss_cls, epoch * num_iter_per_epoch + iter)
+
+            # grad and weights
+            # conv1
+            writer.add_histogram("stage1_conv1.weight", model.stage1_conv1[0].weight, epoch * num_iter_per_epoch + iter)
+            writer.add_histogram("stage1_conv1.grad", model.stage1_conv1[0].weight.grad,
+                                 epoch * num_iter_per_epoch + iter)
+            # conv8
+            writer.add_histogram("stage1_conv8.weight", model.stage1_conv8[0].weight, epoch * num_iter_per_epoch + iter)
+            writer.add_histogram("stage1_conv8.grad", model.stage1_conv8[0].weight.grad,
+                                 epoch * num_iter_per_epoch + iter)
+            # conv8
+            writer.add_histogram("stage1_conv8.weight", model.stage1_conv8[0].weight, epoch * num_iter_per_epoch + iter)
+            writer.add_histogram("stage1_conv8.grad", model.stage1_conv8[0].weight.grad,
+                                 epoch * num_iter_per_epoch + iter)
+            # stage2a_conv6
+            writer.add_histogram("stage2a_conv6.weight", model.stage2_a_conv6[0].weight, epoch * num_iter_per_epoch + iter)
+            writer.add_histogram("stage2a_conv6.grad", model.stage2_a_conv6[0].weight.grad,
+                                 epoch * num_iter_per_epoch + iter)
+            # stage3 conv2
+            writer.add_histogram("stage3_conv2.weight", model.stage3_conv2.weight, epoch * num_iter_per_epoch + iter)
+            writer.add_histogram("stage3_conv2.grad", model.stage3_conv2.weight.grad,
+                                 epoch * num_iter_per_epoch + iter)
+
         if epoch % opt.test_interval == 0:
             model.eval()
             loss_ls = []
@@ -167,8 +182,8 @@ def train(opt):
                 best_loss = te_loss
                 best_epoch = epoch
                 # torch.save(model, opt.saved_path + os.sep + "trained_yolo_coco")
-                torch.save(model.state_dict(), opt.saved_path + os.sep + "only_params_trained_yolo_coco")
-                torch.save(model, opt.saved_path + os.sep + "whole_model_trained_yolo_coco")
+                torch.save(model.state_dict(), opt.saved_path + os.sep + "only_params_trained_yolo_cocoLESS_DATA")
+                torch.save(model, opt.saved_path + os.sep + "whole_model_trained_yolo_cocoLESS_DATA")
 
             # Early stopping
             if epoch - best_epoch > opt.es_patience > 0:
